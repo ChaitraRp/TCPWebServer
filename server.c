@@ -24,7 +24,7 @@ char *ROOTDIR;
 char PORT[10];
 char wsConfFileBuffer[MAXBUFSIZE];
 char *wsConfFilePath;
-int clients[MAXCONN] = {0};
+int clients[MAXCONN];
 int listenfd;
 int clientId;
 int COUNT = 0;
@@ -160,7 +160,7 @@ char *checkExtType(char *ext){
 }
 
 
-void response(int i){
+void httpResponse(int i){
 	clientId = i;
 	FILE *fp;
 	int recvBytes, readBytes;
@@ -206,7 +206,7 @@ void response(int i){
 				strncpy(connStatus,"Connection: Keep-alive",22);
 			else
 				strncpy(connStatus,"Connection: Close",17);
-			printf("Request from Client: %s\n", clientRequest);
+			printf("Client #%d says: %s\n", i,clientRequest);
 			
 			reqLine[0] = strtok(clientRequest, " \t\n");
 			
@@ -318,13 +318,29 @@ void response(int i){
 			
 			//Methods other than GET
 			else{
-				
-			}
-			
-		}
-			
-		
+				strncat(statusLine,version,strlen(version));
+				strncat(statusLine," 501 Not Implemented",20);
+				strncat(statusLine,"\n",strlen("\n"));
+				strncat(statusLine,"Content-Type:None",17);
+				strncat(statusLine,"\n",strlen("\n"));
+				strncat(statusLine,"Content-Length:None",19);
+				strncat(statusLine,"\n",strlen("\n"));
+				strncat(statusLine,connStatus,strlen(connStatus));
+				strncat(statusLine,"\r\n",strlen("\r\n"));
+				strncat(statusLine,"\r\n",strlen("\r\n"));
+				strncat(statusLine,
+						"<head><title>501 Not Implemented</title></head><html><body>501 Not Implemented</body></html>",strlen("<head><title>501 Not Implemented</title></head><html><body>501 Not Implemented</body></html>"));
+				strncat(statusLine,"\r\n",strlen("\r\n"));
+				printf("Status Line: %s\n\n",statusLine);
+				write(clients[i],statusLine,strlen(statusLine));
+			}//end of non GET/POST methods	
+		}//end of else recvBytes>0
 	}//end of while
+	
+	//close the socket here
+	shutdown(clients[i],SHUT_RDWR);
+	close(clients[i]);
+	clients[i]=-1;
 }
 
 int main(){
@@ -332,22 +348,24 @@ int main(){
 	int clientServerSize;
 	int port;
 	int i;
-	readWSConfig();
 	
-	port = atoi(PORT);
-	//printf("Port Number: %d\n", port);
+	for(i=0;i<MAXCONN;i++)
+		clients[i]=-1;
 	
+	readWSConfig();	
 	startServer();
 	
+	i=0;
 	while(1){
 		clientServerSize = sizeof(clientServer);
 		clients[i] = accept(listenfd, (struct sockaddr*)&clientServer, &clientServerSize);
 		if(clients[i]<0)
 			perror("Error: accept()");
-		else if(fork()==0)
-			response(i);
-		
-		while(i<=MAXCONN)
+		else{
+			if(fork()==0)
+				httpResponse(i);
+		}
+		while(clients[i]!=-1)
 			i = (i+1)%MAXCONN;
 	}//end of while
 	return 0;
