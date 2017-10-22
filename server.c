@@ -20,6 +20,7 @@
 #define CLIENT_REQ_SIZE 10000
 #define STATUSLINE 2000
 
+//------------------------------GLOBAL VARIABLES---------------------------
 char *ROOTDIR;
 char PORT[10];
 char wsConfFileBuffer[MAXBUFSIZE];
@@ -30,14 +31,16 @@ int clientId;
 int COUNT = 0;
 long wsConfFileSize=0;
 
-//This function gives size of the file
+
+//-----------------------------GET FILESIZE--------------------------------
 long getFileSize(FILE *fp){
 	fseek(fp, 0, SEEK_END);
     return(ftell(fp));
 }
 
-//Read the WS config file
-void readWSConfig(){
+
+//------------------------------READ WSCONFIG------------------------------
+void readWSConfigFile(){
 	FILE *fp;
 	wsConfFilePath = getenv("PWD");
 	char* token;
@@ -73,6 +76,8 @@ void readWSConfig(){
 	fclose(fp);
 }
 
+
+//----------------------------START WEB SERVER------------------------------
 void startServer(){
 	struct addrinfo *result = NULL;
     struct addrinfo *ptr = NULL;
@@ -96,7 +101,7 @@ void startServer(){
 	}
 	
 	if(ptr==NULL){
-		perror("Error: bind()");
+		perror("Error: socket() or bind()");
 		exit(1);
 	}
 	
@@ -108,34 +113,47 @@ void startServer(){
 	}
 }
 
+
+//-------------------------CHECK FILE FORMAT---------------------------------
 int checkFileFormat(char *ext){
 	FILE *fp;
-	char formats[20][50];
+	char formats[20][100];
+	char *wsConfFilePath1 = getenv("PWD");
+	char wsBuffer[MAXBUFSIZE];
 	int i;
-	int fileSupported = 0;
-	bzero(wsConfFileBuffer,sizeof(wsConfFileBuffer));
-	printf("ws.conf file path: %s\n", wsConfFilePath);
+	int fileSupported=0;
+	int wsSize=0;
 	
-	if(fp = fopen(wsConfFilePath, "r")){
-		fseek(fp, 0, SEEK_SET);
-		
-		while(fgets(wsConfFileBuffer, wsConfFileSize, fp)!=NULL){
-			strcpy(formats[i],wsConfFileBuffer);
-			i++;
-		}
-		
-		for(int j=0;j<i+1;j++){
-			if(strncmp(formats[j],ext,3)==0){
-				fileSupported = 1;
-				break;
-			}
-		}
-		fclose(fp);
-		return fileSupported;
+	printf("**************************************");
+	
+	if(wsConfFilePath1 != NULL)
+		printf("ws.conf path: %s\n", wsConfFilePath1);
+	
+	fp = fopen(wsConfFilePath1, "r");
+	wsSize = getFileSize(fp);
+	fseek(fp, 0, SEEK_SET);
+	
+	while(fgets(wsBuffer, wsSize, fp)!=NULL){
+		strcpy(formats[i],wsBuffer);
+		i++;
 	}
+	
+	int j=0;
+	for(j=0;j<i+1;j++){
+		if(strncmp(formats[j],ext,3)==0){
+			fileSupported = 1;
+			break;
+		}
+	}
+	
+	fclose(fp);
+	printf("File supported: %d\n", fileSupported);
+	return fileSupported;
 }
 
-char *checkExtType(char *ext){
+
+//---------------------------GET CONTENT TYPE-----------------------------
+char* getContentType(char *ext){
 	char *extn;
 	if((strcmp(ext,".html"))==0 || (strcmp(ext,".htm"))==0)
 		extn = "text/html";
@@ -155,57 +173,59 @@ char *checkExtType(char *ext){
 		extn = "image/x-icon";
 	else
 		extn = "application/unknown";
-		
+	
+	printf("Type: %s\n", extn);
 	return extn;
 }
 
 
+//----------------------------GENERATE HTTP RESPONSE------------------------
 void httpResponse(int i){
-	clientId = i;
+	clientId = i; //global value
 	FILE *fp;
-	int recvBytes, readBytes;
+	int recvBytes;
+	int readBytes;
 	int fd;
 	char clientRequest[CLIENT_REQ_SIZE];
 	char path[100];
-	char clientReqFile[50] = "clientReqFile";
+	//char clientReqFile[50] = "clientReqFile";
 	char countString[50];
 	char connStatus[50];
 	char statusLine[STATUSLINE];
 	char *reqLine[3];
 	char version[8];
-	char *contentType;
 	char contentLength[20];
 	char sendData[MAXBUFSIZE];
 	while(1){
 		bzero(clientRequest, sizeof(clientRequest));
-		memset((void*)clientRequest, (int)'\0', CLIENT_REQ_SIZE);
 		bzero(connStatus,sizeof(connStatus));
 		bzero(statusLine,sizeof(statusLine));
 		bzero(reqLine,sizeof(reqLine));
 		bzero(path,sizeof(path));
 		bzero(sendData,sizeof(sendData));
+		memset((void*)clientRequest, (int)'\0', CLIENT_REQ_SIZE);
 		recvBytes = recv(clients[i],clientRequest,CLIENT_REQ_SIZE,0);
 		
-		sprintf(countString,"%d",COUNT);
+		/*sprintf(countString,"%d",COUNT);
 		strcat(clientReqFile, countString);
 		FILE *fpClientReqFile = fopen(clientReqFile,"w");
+		
 		if(fpClientReqFile!=NULL){
 			fputs(clientRequest, fpClientReqFile);
 			fclose(fpClientReqFile);
-		}
+		}*/
 		
 		if(!strstr(clientRequest,"Connection: Keep-alive"))
-			strncpy(connStatus,"Connection: Keep-alive",22);
+			strncpy(connStatus,"Connection: Keep-alive",strlen("Connection: Keep-alive"));
 		else
-			strncpy(connStatus,"Connection: Close",17);
-			
+			strncpy(connStatus,"Connection: Close",strlen("Connection: Close"));
+		
+		bzero(statusLine,sizeof(statusLine));
 		if(recvBytes < 0)
 			perror("Error: recv() error");
+		else if(recvBytes == 0)
+			readBytes = 0;
 		else{
-			if(!strstr(clientRequest,"Connection: Keep-alive"))
-				strncpy(connStatus,"Connection: Keep-alive",22);
-			else
-				strncpy(connStatus,"Connection: Close",17);
 			printf("Client #%d says: %s\n", i,clientRequest);
 			
 			reqLine[0] = strtok(clientRequest, " \t\n");
@@ -214,17 +234,18 @@ void httpResponse(int i){
 				reqLine[1] = strtok(NULL, " \t");
 				reqLine[2] = strtok(NULL, " \t\n");
 				
-				if(strncmp(reqLine[2],"HTTP/1.1",8)==0)
+				if(strncmp(reqLine[2],"HTTP/1.1",strlen("HTTP/1.1"))==0)
 					strcpy(version,"HTTP/1.1");
-				else if(strncmp(reqLine[2],"HTTP/1.0",8)==0)
+				else
 					strcpy(version,"HTTP/1.0");
-				else if(strncmp(reqLine[2],"HTTP/1.1",8)!=0 && strncmp(reqLine[2],"HTTP/1.0",8)!=0){
+				
+				if(strncmp(reqLine[2],"HTTP/1.1",strlen("HTTP/1.1"))!=0 && strncmp(reqLine[2],"HTTP/1.0",strlen("HTTP/1.0"))!=0){
 					strncat(statusLine,version,strlen(version));
-					strncat(statusLine," 400 Bad Request",16);
+					strncat(statusLine," 400 Bad Request",strlen(" 400 Bad Request"));
 					strncat(statusLine,"\n",strlen("\n"));
-					strncat(statusLine,"Content-Type:NONE",17);
+					strncat(statusLine,"Content-Type:NONE",strlen("Content-Type:NONE"));
 					strncat(statusLine,"\n",strlen("\n"));
-					strncat(statusLine,"Content-Length:NONE",19);
+					strncat(statusLine,"Content-Length:NONE",strlen("Content-Length:NONE"));
 					strncat(statusLine,"\n",strlen("\n"));
 					strncat(statusLine,connStatus,strlen(connStatus));
 					strncat(statusLine,"\r\n",strlen("\r\n"));
@@ -240,10 +261,12 @@ void httpResponse(int i){
 					
 					stpcpy(path, ROOTDIR);
 					strcpy(&path[strlen(ROOTDIR)], reqLine[1]);
+					printf("^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n");
 					printf("file: %s\n", path);
 					
 					int isFileFormat;
-					char *ext = strchr(clientReqFile,'.');
+					char *ext = strrchr(path,'.');
+					printf("Extension: %s\n",ext);
 					if(ext == NULL)
 						isFileFormat = 0;
 					else
@@ -252,26 +275,26 @@ void httpResponse(int i){
 					if(isFileFormat == 1){
 						if((fd=open(path,O_RDONLY))!=-1){
 							fp = fopen(path,"r");
-							contentType = checkExtType(ext);
+							char *contentType = getContentType(ext);
 							int fileSize = getFileSize(fp);
 							sprintf(contentLength,"%d",fileSize);
 						
 							strncat(statusLine,version,strlen(version));
-							strncat(statusLine," 200 OK",7);
+							strncat(statusLine," 200 OK",strlen(" 200 OK"));
 							strncat(statusLine,"\n",strlen("\n"));
-							strncat(statusLine,"Content-Type:",13);
+							strncat(statusLine,"Content-Type:",strlen("Content-Type:"));
 							strncat(statusLine,contentType,strlen(contentType));
 							strncat(statusLine,"\n",strlen("\n"));
-							strncat(statusLine,"Content-Length:",15);
+							strncat(statusLine,"Content-Length:",strlen("Content-Length:"));
 							strncat(statusLine,contentLength,strlen(contentLength));
 							strncat(statusLine,"\n",strlen("\n"));
 							strncat(statusLine,connStatus,strlen(connStatus));
 							strncat(statusLine,"\r\n",strlen("\r\n"));
 							strncat(statusLine,"\r\n",strlen("\r\n"));
-							printf("Status Line: %s\n\n",statusLine);
+							//printf("Status Line: %s\n\n",statusLine);
 							send(clients[i],statusLine,strlen(statusLine),0);
 							
-							while(readBytes = read(fd,sendData,MAXBUFSIZE)>0)
+							while((readBytes = read(fd,sendData,MAXBUFSIZE))>0)
 								write(clients[i],sendData,readBytes);
 							
 							fclose(fp);
@@ -279,38 +302,40 @@ void httpResponse(int i){
 						//else if(fd == -1) file not found
 						else{
 							strncat(statusLine,version,strlen(version));
-							strncat(statusLine," 404 Not Found",14);
+							strncat(statusLine," 404 Not Found",strlen(" 404 Not Found"));
 							strncat(statusLine,"\n",strlen("\n"));
-							strncat(statusLine,"Content-Type:Invalid",20);
+							strncat(statusLine,"Content-Type:Invalid",strlen("Content-Type:Invalid"));
 							strncat(statusLine,"\n",strlen("\n"));
-							strncat(statusLine,"Content-Length:Invalid",22);
+							strncat(statusLine,"Content-Length:Invalid",strlen("Content-Length:Invalid"));
 							strncat(statusLine,"\n",strlen("\n"));
 							strncat(statusLine,connStatus,strlen(connStatus));
 							strncat(statusLine,"\r\n",strlen("\r\n"));
 							strncat(statusLine,"\r\n",strlen("\r\n"));
 							strncat(statusLine,
-									"<head><title>404 Not Found</title></head><html><body>404 Not Found: URL does not exist</body></html>",strlen("<head><title>404 Not Found</title></head><html><body>404 Not Found: URL does not exist</body></html>"));
+									"<head><title>404 Not Found</title></head><html><body>404 Not Found: URL does not exist: ",strlen("<head><title>404 Not Found</title></head><html><body>404 Not Found: URL does not exist: "));
+							strncat(statusLine,path,strlen(path));
+							strncat(statusLine,"</body></html>",strlen("</body></html>"));
 							strncat(statusLine,"\r\n",strlen("\r\n"));
-							printf("Status Line: %s\n\n",statusLine);
+							//printf("Status Line: %s\n\n",statusLine);
 							write(clients[i],statusLine,strlen(statusLine));
 						}
 					}//end of if isFileFormat == 1
 					
 					else{ //if fileFormat is not supported then send 501
 						strncat(statusLine,version,strlen(version));
-						strncat(statusLine," 501 Not Implemented",20);
+						strncat(statusLine," 501 Not Implemented",strlen(" 501 Not Implemented"));
 						strncat(statusLine,"\n",strlen("\n"));
-						strncat(statusLine,"Content-Type:None",17);
+						strncat(statusLine,"Content-Type:None",strlen("Content-Type:None"));
 						strncat(statusLine,"\n",strlen("\n"));
-						strncat(statusLine,"Content-Length:None",19);
+						strncat(statusLine,"Content-Length:None",strlen("Content-Length:None"));
 						strncat(statusLine,"\n",strlen("\n"));
 						strncat(statusLine,connStatus,strlen(connStatus));
 						strncat(statusLine,"\r\n",strlen("\r\n"));
 						strncat(statusLine,"\r\n",strlen("\r\n"));
 						strncat(statusLine,
-								"<head><title>501 Not Implemented</title></head><html><body>501 Not Implemented</body></html>",strlen("<head><title>501 Not Implemented</title></head><html><body>501 Not Implemented</body></html>"));
+								"<head><title>501 Not Implemented</title></head><html><body>501 Not Implemented: Unsupported file format</body></html>",strlen("<head><title>501 Not Implemented</title></head><html><body>501 Not Implemented: Unsupported file format</body></html>"));
 						strncat(statusLine,"\r\n",strlen("\r\n"));
-						printf("Status Line: %s\n\n",statusLine);
+						//printf("Status Line: %s\n\n",statusLine);
 						write(clients[i],statusLine,strlen(statusLine));
 					}//end of 501 error
 				}//end of 200 OK
@@ -319,19 +344,19 @@ void httpResponse(int i){
 			//Methods other than GET
 			else{
 				strncat(statusLine,version,strlen(version));
-				strncat(statusLine," 501 Not Implemented",20);
+				strncat(statusLine," 501 Not Implemented",strlen(" 501 Not Implemented"));
 				strncat(statusLine,"\n",strlen("\n"));
-				strncat(statusLine,"Content-Type:None",17);
+				strncat(statusLine,"Content-Type:None",strlen("Content-Type:None"));
 				strncat(statusLine,"\n",strlen("\n"));
-				strncat(statusLine,"Content-Length:None",19);
+				strncat(statusLine,"Content-Length:None",strlen("Content-Length:None"));
 				strncat(statusLine,"\n",strlen("\n"));
 				strncat(statusLine,connStatus,strlen(connStatus));
 				strncat(statusLine,"\r\n",strlen("\r\n"));
 				strncat(statusLine,"\r\n",strlen("\r\n"));
 				strncat(statusLine,
-						"<head><title>501 Not Implemented</title></head><html><body>501 Not Implemented</body></html>",strlen("<head><title>501 Not Implemented</title></head><html><body>501 Not Implemented</body></html>"));
+						"<head><title>501 Not Implemented</title></head><html><body>501 Not Implemented: Unsupported method</body></html>",strlen("<head><title>501 Not Implemented</title></head><html><body>501 Not Implemented: Unsupported method</body></html>"));
 				strncat(statusLine,"\r\n",strlen("\r\n"));
-				printf("Status Line: %s\n\n",statusLine);
+				//printf("Status Line: %s\n\n",statusLine);
 				write(clients[i],statusLine,strlen(statusLine));
 			}//end of non GET/POST methods	
 		}//end of else recvBytes>0
@@ -343,16 +368,17 @@ void httpResponse(int i){
 	clients[i]=-1;
 }
 
+
+//-----------------------------------MAIN----------------------------------
 int main(){
 	struct sockaddr_in clientServer;
 	int clientServerSize;
-	int port;
 	int i;
 	
 	for(i=0;i<MAXCONN;i++)
 		clients[i]=-1;
 	
-	readWSConfig();	
+	readWSConfigFile();	
 	startServer();
 	
 	i=0;
