@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <memory.h>
 #include <errno.h>
+#include <sys/types.h>
+#include <sys/stat.h>
 #include <string.h>
 
 #define MAXBUFSIZE 1024
@@ -19,6 +21,7 @@
 char *ROOTDIR;
 char PORT[10];
 int clients[MAXCONN] = {0};
+int listenfd;
 
 //This function gives size of the file
 long getFileSize(FILE *fp){
@@ -65,6 +68,41 @@ void readWSConfig(){
 	fclose(fp);
 }
 
+void startServer(int port){
+	struct addrinfo *result = NULL;
+    struct addrinfo *ptr = NULL;
+    struct addrinfo hints;
+	memset(&hints,0,sizeof(hints));
+	hints.ai_family = AF_INET;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags = AI_PASSIVE;
+	
+	//Reference: https://msdn.microsoft.com/en-us/library/windows/desktop/ms737530(v=vs.85).aspx
+	if(getaddrinfo(NULL, PORT, &hints, &result)!=0){
+		perror("Error: getaddrinfo()");
+		exit(1);
+	}
+	
+	for(ptr=result; ptr!=NULL; ptr=ptr->ai_next){
+		if((listenfd=socket(ptr->ai_family, ptr->ai_socktype, 0))==-1)
+			continue;
+		if(bind(listenfd, ptr->ai_addr, ptr->ai_addrlen)==0)
+			break;
+	}
+	
+	if(ptr==NULL){
+		perror("Error: bind()");
+		exit(1);
+	}
+	
+	freeaddrinfo(result);
+	
+	if(listen(listenfd, MAXCONN)!=0){
+		perror("Error: listen()");
+		exit(1);
+	}
+}
+
 
 int main(){
 	struct sockaddr_in clientServer;
@@ -74,5 +112,7 @@ int main(){
 	
 	port = atoi(PORT);
 	//printf("Port Number: %d\n", port);
+	
+	startServer(port);
 	
 }
