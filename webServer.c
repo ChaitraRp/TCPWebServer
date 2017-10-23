@@ -1,3 +1,7 @@
+//NETSYS PROGRAMMING ASSIGNMENT 2
+//Chaitra Ramachandra
+
+//libraries
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
@@ -28,22 +32,21 @@ char TIMEOUT_STRING[10];
 int TIMEOUT;
 int clientId;
 int listenfd, clients[MAXCONN];
-int COUNT = 0;
-
 struct itimerval timeout;
 
-//-----------------------------TIMEOUT------------------------------------
+//-------------------------------------TIMEOUT------------------------------------
+//extra credit part
 void clientTimeout(){  
 	printf("Timing Out!\n");
 	printf("Closing client #%d\n", clientId);
-	shutdown (clients[clientId], SHUT_RDWR);
+	shutdown(clients[clientId], SHUT_RDWR);
 	close(clients[clientId]);
-	clients[clientId]=-1;
+	clients[clientId]=-1; //reset the clientId
    	exit(0);
 }
 
 
-//-----------------------------GET FILESIZE--------------------------------
+//----------------------------------GET FILESIZE---------------------------------
 int getFileSize(FILE *fp){
 	fseek(fp, 0, SEEK_END);
     return(ftell(fp));
@@ -51,10 +54,13 @@ int getFileSize(FILE *fp){
 
 
 //-------------------------CHECK FILE FORMAT---------------------------------
+//This functions checks for the extention type requested by the client and returns 1 if it is supported, else  returns 0
 int checkFileFormat(char *ext){
     FILE *fp;
 	char formats[20][100];
     char wsBuffer[MAXBUFSIZE];
+	
+	//get current directory
 	char *wsConfigFilePath = getenv("PWD");
 	
     int fileSupported = 0;
@@ -73,6 +79,7 @@ int checkFileFormat(char *ext){
         i++;
     }
 
+	//string compare for supported file types
     int j=0;
     for(j=0;j<i+1;j++){
         if(strncmp(formats[j],ext,3)==0)
@@ -86,7 +93,9 @@ int checkFileFormat(char *ext){
 }
 
 
-//---------------------------GET CONTENT TYPE-----------------------------
+//---------------------------------GET CONTENT TYPE-----------------------------
+//This function will check the extention and return the ContentType
+//Reference: https://stackoverflow.com/questions/28631767/sending-images-over-http-to-browser-in-c
 char *getContentType(char *ext){
 	char *extn;
 	if((strcmp(ext,".html"))==0 || (strcmp(ext,".htm"))==0)
@@ -114,7 +123,8 @@ char *getContentType(char *ext){
 
 
 
-//------------------------------READ WSCONFIG------------------------------
+//-------------------------------------READ WSCONFIG------------------------------
+//This function reads the ws.conf file for Port number, Document root directory and Timeout value
 void readWSConfigFile(){
     FILE *fp;
 	char *wsConfFilePath = getenv("PWD");
@@ -149,6 +159,8 @@ void readWSConfigFile(){
 				printf("Root Directory: %s\n",ROOTDIR);
 				bzero(wsConfFileBuffer,sizeof(wsConfFileBuffer));
 			}
+			
+			//extra credit part
 			if(strncmp(wsConfFileBuffer,"Timeout",7)==0){
 				token = strtok(wsConfFileBuffer," \t\n");
 				token = strtok(NULL, " \t\n");
@@ -169,7 +181,8 @@ void readWSConfigFile(){
 
 
 
-//----------------------------START WEB SERVER------------------------------
+//-----------------------------------START WEB SERVER------------------------------
+//Reference: https://msdn.microsoft.com/en-us/library/windows/desktop/ms737530(v=vs.85).aspx
 void startServer(){
 	struct addrinfo *result;
     struct addrinfo *ptr;
@@ -180,7 +193,7 @@ void startServer(){
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
     
-	//Reference: https://msdn.microsoft.com/en-us/library/windows/desktop/ms737530(v=vs.85).aspx
+	//Reference: https://github.com/angrave/SystemProgramming/wiki/Networking,-Part-2:-Using-getaddrinfo
     if(getaddrinfo(NULL, PORT, &hints, &result) != 0){
         perror("Error: getaddrinfo()");
 		exit(1);
@@ -214,7 +227,7 @@ void getHTTPResponse(int i)
 {
     clientId = i; //global value
 	char clientRequest[CLIENT_REQ_SIZE];
-	char *reqLine[3];
+	char *requestData[3];
 	char sendData[MAXBUFSIZE];
 	char path[CLIENT_REQ_SIZE];
     char statusLine[STATUSLINE];
@@ -229,14 +242,16 @@ void getHTTPResponse(int i)
     
     int checkPost=0;
     
+	//timeout part
 	signal(SIGALRM,(void(*)(int))clientTimeout);
 	timeout.it_value.tv_sec = TIMEOUT;
 	timeout.it_value.tv_usec = 0;
 	timeout.it_interval = timeout.it_value;
 
 	while(1){
+		//zero all the values so that next client can use it
 		bzero(clientRequest,sizeof(clientRequest));
-		bzero(reqLine,sizeof(reqLine));
+		bzero(requestData,sizeof(requestData));
 		bzero(sendData,sizeof(sendData));
 		bzero(path,sizeof(path));
 		bzero(statusLine,sizeof(statusLine));
@@ -246,19 +261,9 @@ void getHTTPResponse(int i)
 		memset((void*)clientRequest,(int)'\0',CLIENT_REQ_SIZE);
 		recvBytes = recv(clients[i],clientRequest,CLIENT_REQ_SIZE,0);
 		
-		char filename[50] = "file";
-		char countString[50];
-		sprintf(countString,"%d",COUNT);
-		strcat(filename,countString);
-		FILE *fpFile = fopen(filename, "w");
-		
-		if (fpFile != NULL){
-			fputs(clientRequest, fpFile);
-			fclose(fpFile);
-		}
-
-		if (!strstr(clientRequest,"Connection: Keep-alive"))
-			strncpy(connStatus,"Connection: Keep-alive",strlen("Connection: Keep-alive"));
+		//check for connection status in the clientRequest
+		if(!strstr(clientRequest,"Connection: keep-alive"))
+			strncpy(connStatus,"Connection: keep-alive",strlen("Connection: keep-alive"));
 		else    
 			strncpy(connStatus, "Connection: Close",strlen("Connection: Close"));
 
@@ -269,61 +274,62 @@ void getHTTPResponse(int i)
 		else if(recvBytes==0)
 			recvBytes = 0;
 		else{
+			//timeout needs to be reset for another request
 			timeout.it_value.tv_sec = TIMEOUT;
 			timeout.it_value.tv_usec = 0;
 			timeout.it_interval = timeout.it_value;
 			
-			if (!strstr(clientRequest,"Connection: Keep-alive"))
-				strncpy(connStatus,"Connection: Keep-alive",strlen("Connection: Keep-alive"));
+			if(!strstr(clientRequest,"Connection: keep-alive"))
+				strncpy(connStatus,"Connection: keep-alive",strlen("Connection: keep-alive"));
 			else
 				strncpy(connStatus,"Connection: Close",strlen("Connection: Close"));
 
 			printf("Client #%d says: %s\n", i,clientRequest);
 
-			reqLine[0] = strtok (clientRequest, " \t\n");
+			requestData[0] = strtok (clientRequest, " \t\n");
 			
-			if ((strncmp(reqLine[0],"GET\0",4)==0) || (strncmp(reqLine[0],"POST\0",5)==0)){
-				if (strncmp(reqLine[0],"POST\0",5)==0){
+			if ((strncmp(requestData[0],"GET\0",4)==0) || (strncmp(requestData[0],"POST\0",5)==0)){
+				if(strncmp(requestData[0],"POST\0",5)==0){
 					printf("********POST*********\n");
 					checkPost = 1;
 				}
-				reqLine[1] = strtok (NULL, " \t");
-				reqLine[2] = strtok (NULL, " \t\n");
 				
-				if (strncmp(reqLine[2],"HTTP/1.1",8) == 0)
+				//tokenize to get HTTP/1.1 or HTTP/1.0
+				requestData[1] = strtok(NULL, " \t");
+				requestData[2] = strtok(NULL, " \t\n");
+				
+				if(strncmp(requestData[2],"HTTP/1.1",8) == 0)
 					strcpy(version, "HTTP/1.1");
 				else
 					strcpy(version, "HTTP/1.0");
-
-				if (strncmp(reqLine[2],"HTTP/1.0",8)!=0 && strncmp(reqLine[2],"HTTP/1.1",8)!=0){
+				
+				//Error 400 Bad Request
+				if(strncmp(requestData[2],"HTTP/1.0",8)!=0 && strncmp(requestData[2],"HTTP/1.1",8)!=0){
 					strncat(statusLine,version,strlen(version));
 					strncat(statusLine," 400 Bad Request",strlen(" 400 Bad Request"));
 					strncat(statusLine,"\n",strlen("\n"));
-					strncat(statusLine,"Content-Type:",strlen("Content-type:"));
-					strncat(statusLine,"NONE",strlen("NONE"));
+					strncat(statusLine,"Content-Type:None",strlen("Content-Type:None"));
 					strncat(statusLine,"\n",strlen("\n"));
-					strncat(statusLine,"Content-Length:",strlen("Content-Length:"));
-					strncat(statusLine,"NONE",strlen("NONE"));
+					strncat(statusLine,"Content-Length:None",strlen("Content-Length:None"));
 					strncat(statusLine,"\n",strlen("\n"));
 					strncat(statusLine,connStatus,strlen(connStatus));
 					strncat(statusLine,"\r\n",strlen("\r\n"));
 					strncat(statusLine,"\r\n",strlen("\r\n"));
-					strncat(statusLine,"<HEAD><TITLE>400 Bad Request Reason</TITLE></HEAD>",strlen("<HEAD><TITLE>400 Bad Request Reason</TITLE></HEAD>"));
-					strncat(statusLine,"<html><BODY>>400 Bad Request Reason: Invalid HTTP-Version :",strlen("<BODY>>400 Bad Request Reason: Invalid HTTP-Version :"));
-					strncat(statusLine,"HTTP",strlen("HTTP"));
-					strncat(statusLine,"</BODY></html>",strlen("</BODY></html>"));
+					strncat(statusLine,
+						"<!DOCTYPE html><head><title>400 Bad Request Reason</title></head><body><h1>400 Bad Request: Invalid HTTP Version</h1></body></html>",
+						strlen("<!DOCTYPE html><head><title>400 Bad Request Reason</title></head><body><h1>400 Bad Request: Invalid HTTP Version</h1></body></html>"));
 					strncat(statusLine,"\r\n",strlen("\r\n"));
 					printf("%s\n",statusLine);
 					write(clients[i],statusLine,strlen(statusLine));
-				} //end of 400
+				} //end of 400 error
 				
 				else{ //if version_header is correct
-					if (strncmp(reqLine[1],"/\0",2)==0)
-						reqLine[1] = "/index.html";
+					if (strncmp(requestData[1],"/\0",2)==0)
+						requestData[1] = "/index.html";
 
 					strcpy(path, ROOTDIR);
-					strcpy(&path[strlen(ROOTDIR)], reqLine[1]);
-					printf("file: %s\n", path);
+					strcpy(&path[strlen(ROOTDIR)], requestData[1]);
+					//printf("file: %s\n", path);
 
 					int isFileFormat;
 					char *ext = strrchr(path,'.');
@@ -336,18 +342,16 @@ void getHTTPResponse(int i)
 					
 					if(isFileFormat==1){
 						if((fd=open(path, O_RDONLY))!=-1){
-							fp = fopen(path,"r");;
+							fp = fopen(path,"r");
 							char *contentType = getContentType(ext);
 							int size = getFileSize(fp);
 							fseek(fp, 0, SEEK_SET);
 							sprintf(contentLength,"%d",size);
 							
+							//For POST requests
 							char postData[CLIENT_REQ_SIZE];
 							if(checkPost==1){
-								printf("Inside POST IF condition\n");
-								COUNT++;
-								printf("COUNT: %d",COUNT);
-								remove(filename);
+								printf("Inside POST condition\n");
 								strncat(statusLine,"POST ",strlen("POST "));
 							}
 
@@ -361,103 +365,98 @@ void getHTTPResponse(int i)
 							strncat(statusLine,contentLength,strlen(contentLength));
 							strncat(statusLine,"\n",strlen("\n"));
 							strncat(statusLine,connStatus,strlen(connStatus));
+							strncat(statusLine,"\r\n\r\n",strlen("\r\n\r\n"));
 							
+							//For POST requests
 							if(checkPost==1){
-								strncat(statusLine,"\r\n\r\n",strlen("\r\n\r\n"));
-								sprintf(postData,"<h1>Post Data</h1><html><body>%s</body></html>\n","Have a nice day!");
+								sprintf(postData,
+								"<!DOCTYPE html><head><title>Post Data</title></head><body><h1>%s</h1></body></html>\n","Have a nice day!");
 								strncat(statusLine,postData,strlen(postData));
-								strncat(statusLine,"\r\n",strlen("\r\n"));
-							}
-							else{
-								strncat(statusLine,"\r\n",strlen("\r\n"));
 								strncat(statusLine,"\r\n",strlen("\r\n"));
 							}
 							printf("%s\n",statusLine);
 							send(clients[i],statusLine,strlen(statusLine),0);
 
-							while ((readBytes = read(fd,sendData,MAXBUFSIZE))>0)
+							while((readBytes = read(fd,sendData,MAXBUFSIZE))>0)
 								write(clients[i],sendData,readBytes);
 
 							fclose(fp);
 							bzero(postData,sizeof(postData));
 						}
 					
+						//Error 404 Not Found
 						else{  //if fd == -1 404 error
 							strncat(statusLine,version,strlen(version));
 							strncat(statusLine," 404 Not Found",strlen(" 404 Not Found"));
 							strncat(statusLine,"\n",strlen("\n"));
-							strncat(statusLine,"Content-Type:",strlen("Content-type:"));
-							strncat(statusLine,"Invalid",strlen("Invalid"));
+							strncat(statusLine,"Content-Type:Invalid",strlen("Content-type:Invalid"));
 							strncat(statusLine,"\n",strlen("\n"));
-							strncat(statusLine,"Content-Length:",strlen("Content-Length:"));
-							strncat(statusLine,"Invalid",strlen("Invalid"));
+							strncat(statusLine,"Content-Length:Invalid",strlen("Content-Length:Invalid"));
 							strncat(statusLine,"\n",strlen("\n"));
-							strncat(statusLine,connStatus,strlen(connStatus));                     
-							strncat(statusLine,"\r\n",strlen("\r\n"));
-							strncat(statusLine,"\r\n",strlen("\r\n"));
-							strncat(statusLine,"<html><BODY>404 Not Found: URL does not exist:",strlen("<html><BODY>404 Not Found: URL does not exist:"));
+							strncat(statusLine,connStatus,strlen(connStatus));
+							strncat(statusLine,"\r\n\r\n",strlen("\r\n\r\n"));
+							strncat(statusLine,
+							"<!DOCTYPE html><head><title>404 Not Found</title></head><body><h1>404 Not Found</h1><br/><p>URL does not exist:",
+							strlen("<!DOCTYPE html><head><title>404 Not Found</title></head><body><h1>404 Not Found</h1><br/><p>URL does not exist:"));
 							strncat(statusLine,path,strlen(path));
-							strncat(statusLine,"</BODY></html>",strlen("</BODY></html>"));
-							strncat(statusLine,"\r\n",strlen("\r\n"));
+							strncat(statusLine,"</p></body></html>",strlen("</p></body></html>"));
+							strncat(statusLine,"\r\n\r\n",strlen("\r\n\r\n"));
 							printf("%s\n",statusLine);
 							write(clients[i], statusLine, strlen(statusLine));								
 						}//end of 404
 					}//end of if isFileFormat == 1
 
+					//Error 501 Unsupported File format
 					else{ //if fileFormat is not supported then send 501
 						strncat(statusLine,version,strlen(version));
 						strncat(statusLine," 501 Not Implemented",strlen(" 501 Not Implemented"));
 						strncat(statusLine,"\n",strlen("\n"));
-						strncat(statusLine,"Content-Type:",strlen("Content-type:"));
-						strncat(statusLine,"NONE",strlen("NONE"));
+						strncat(statusLine,"Content-Type:None",strlen("Content-type:"));
 						strncat(statusLine,"\n",strlen("\n"));
-						strncat(statusLine,"Content-Length:",strlen("Content-Length:"));
-						strncat(statusLine,"NONE",strlen("NONE"));
+						strncat(statusLine,"Content-Length:None",strlen("Content-Length:"));
 						strncat(statusLine,"\n",strlen("\n"));
 						strncat(statusLine,connStatus,strlen(connStatus));
-						strncat(statusLine,"\r\n",strlen("\r\n"));
-						strncat(statusLine,"\r\n",strlen("\r\n"));
-						strncat(statusLine,"<HEAD><TITLE>501 Not Implemented</TITLE></HEAD>",strlen("<HEAD><TITLE>501 Not Implemented</TITLE></HEAD>"));
-						strncat(statusLine,"<BODY>501 Not Implemented: File format not supported:",strlen("<BODY>501 Not Implemented: File format not supported:"));
-						strncat(statusLine,version,strlen(version));
-						strncat(statusLine,"</BODY></html>",strlen("</BODY></html>"));
+						strncat(statusLine,"\r\n\r\n",strlen("\r\n\r\n"));
+						strncat(statusLine,
+						"<!DOCTYPE html><head><title>501 Not Implemented</title></head><body><h1>501 Not Implemented</h1><p>File format not supported: ",
+						strlen("<!DOCTYPE html><head><title>501 Not Implemented</title></head><body><h1>501 Not Implemented</h1><p>File format not supported: "));
+						strncat(statusLine,ext,strlen(ext));
+						strncat(statusLine,"</p></body></html>",strlen("</p></body></html>"));
 						strncat(statusLine,"\r\n",strlen("\r\n"));
 						write(clients[i], statusLine, strlen(statusLine)); 
 					}//end of 501
 				}//end of 200 OK
 			}//end of GET/POST
 
-			//Methods other than GET/POST
+			//Error 501 Methods other than GET/POST
 			else{
 				strncat(statusLine,"HTTP/1.1",strlen("HTTP/1.1"));
 				strncat(statusLine,"\n",strlen("\n"));
-				strncat(statusLine,"Content-Type:",strlen("Content-type:"));
-				strncat(statusLine,"NONE",strlen("NONE"));
+				strncat(statusLine,"Content-Type:None",strlen("Content-type:"));
 				strncat(statusLine,"\n",strlen("\n"));
-				strncat(statusLine,"Content-Length:",strlen("Content-Length:"));
-				strncat(statusLine,"NONE",strlen("NONE"));
+				strncat(statusLine,"Content-Length:None",strlen("Content-Length:"));
 				strncat(statusLine,"\r\n",strlen("\r\n"));
 				strncat(statusLine,"\r\n",strlen("\r\n"));
-				strncat(statusLine,"<HEAD><TITLE>501 Not Implemented</TITLE></HEAD>",strlen("<HEAD><TITLE>501 Not Implemented</TITLE></HEAD>"));
-				strncat(statusLine,"<BODY>501 Not Implemented: File format not supported:",strlen("<BODY>501 Not Implemented: File format not supported:"));
-				strncat(statusLine,"HTTP/1.1",strlen("HTTP/1.1"));
-				strncat(statusLine,"</BODY></html>",strlen("</BODY></html>"));
+				strncat(statusLine,
+				"<!DOCTYPE html><head><title>501 Not Implemented</title></head><body><h1>501 Not Implemented</h1><p>Method not supported: ",
+				strlen("<!DOCTYPE html><head><title>501 Not Implemented</title></head><body><h1>501 Not Implemented</h1><p>Method not supported</p></body></html>"));
 				strncat(statusLine,"\r\n",strlen("\r\n"));
 				write(clients[i], statusLine, strlen(statusLine));
 			}//end of 501 for unsupported Methods
 		}
 
-		if (!strstr(clientRequest,"Connection: Keep-alive"))
+		//check for keep-alive
+		if (!strstr(clientRequest,"Connection: keep-alive"))
 			setitimer(ITIMER_REAL,&timeout,NULL);
 		else{
-			shutdown (clients[i], SHUT_RDWR);
+			shutdown(clients[i], SHUT_RDWR);
 			close(clients[i]);
 			clients[i]=-1;
 			exit(0);
 		}
 	}//end while
 
-    printf("Done with response!\n");
+    printf("My Ghod! Done with response!\n");
 }
 
 
@@ -467,27 +466,36 @@ void getHTTPResponse(int i)
 
 //-----------------------------------MAIN----------------------------------
 int main(){
+	//To create socket - Ref: https://msdn.microsoft.com/en-us/library/windows/desktop/ms740496(v=vs.85).aspx
 	struct sockaddr_in clientServer;
 	int clientServerSize;
 	int i;
     
+	//Initialize array of clients to -1 because ClientID starts from #0
 	for(i=0;i<MAXCONN;i++)
 		clients[i]=-1;
 
+	//read the ws.conf file
     readWSConfigFile();
+	
+	//start the Web Server
     startServer();
 
     i=0;
     while (1)
     {
         clientServerSize = sizeof(clientServer);
+		
+		//start accepting connections
         clients[i] = accept(listenfd, (struct sockaddr *)&clientServer, &clientServerSize);
 		
         if (clients[i]<0)
             perror("Error: accept()");
         else
         {
+			//for multiple connections
             if (fork()==0)
+				//this function generates the http response
                 getHTTPResponse(i);
         }
 
